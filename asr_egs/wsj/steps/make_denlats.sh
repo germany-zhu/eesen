@@ -18,7 +18,7 @@ beam=15.0       # beam used
 lattice_beam=8.0
 max_mem=50000000 # approx. limit to memory consumption during minimization in bytes
 
-skip_scoring=false # whether to skip WER scoring
+skip_scoring=true # whether to skip WER scoring
 scoring_opts="--min-acwt 5 --max-acwt 10 --acwt-factor 0.1"
 
 # feature configurations; will be read from the training dir if not provided
@@ -31,9 +31,9 @@ echo "$0 $@"  # Print the command line for logging
 [ -f ./path.sh ] && . ./path.sh;
 . parse_options.sh || exit 1;
 
-if [ $# != 3 ]; then
+if [ $# != 4 ]; then
    echo "Wrong #arguments ($#, expected 3)"
-   echo "Usage: steps/decode_ctc.sh [options] <graph-dir> <data-dir> <decode-dir>"
+   echo "Usage: steps/decode_ctc.sh [options] <graph-dir> <data-dir> <src-dir> <exp-dir>"
    echo " e.g.: steps/decode_ctc.sh data/lang data/test exp/train_l4_c320/decode"
    echo "main options (for others, see top of script file)"
    echo "  --stage                                  # starts from which stage"
@@ -45,9 +45,10 @@ fi
 
 graphdir=$1
 data=$2
-dir=`echo $3 | sed 's:/$::g'` # remove any trailing slash.
+srcdir=$3
+dir=$4
 
-srcdir=`dirname $dir`; # assume model directory one level up from decoding directory.
+
 sdata=$data/split$nj;
 
 thread_string=
@@ -70,23 +71,33 @@ echo "$0: feature: norm_vars(${norm_vars}) add_deltas(${add_deltas})"
 feats="ark,s,cs:apply-cmvn --norm-vars=$norm_vars --utt2spk=ark:$sdata/JOB/utt2spk scp:$sdata/JOB/cmvn.scp scp:$sdata/JOB/feats.scp ark:- |"
 $add_deltas && feats="$feats add-deltas ark:- ark:- |"
 ##
+# Prepare 'scp' for storing lattices separately and gzipped
+  for n in `seq $nj`; do
+    [ ! -d $dir/lat$n ] && mkdir $dir/lat$n;
+    cat $sdata/$n/feats.scp | awk '{ print $1" | gzip -c >'$dir'/lat'$n'/"$1".gz"; }'
+  done >$dir/lat.store_separately_as_gz.scp
 
 # Decode for each of the acoustic scales
-$cmd JOB=1:$nj $dir/log/decode.JOB.log \
-  net-output-extract --class-frame-counts=$srcdir/label.counts --apply-log=true $srcdir/final.nnet "$feats" ark:- \| \
+$cmd JOB=1:$nj $dir/log/decode_den.JOB.log \
+  nnet-forward --class-frame-counts=$srcdir/label.counts --apply-log=true --no-softmax=false $srcdir/final.nnet "$feats" ark:- \| \
   latgen-faster  --max-active=$max_active --max-mem=$max_mem --beam=$beam --lattice-beam=$lattice_beam \
   --acoustic-scale=$acwt --allow-partial=true --word-symbol-table=$graphdir/words.txt \
-  $graphdir/TLG.fst ark:- "ark:|gzip -c > $dir/lat.JOB.gz" || exit 1;
+  $graphdir/TLG.fst ark:- "scp:$dir/lat.store_separately_as_gz.scp" || exit 1;
+
+#2) Generate 'scp' for reading the lattices
+for n in `seq $nj`; do
+  find $dir/lat${n} -name "*.gz" | awk -v FS="/" '{ print gensub(".gz","","",$NF)" gunzip -c "$0" |"; }'
+done >$dir/lat.scp
 
 # Scoring
-if ! $skip_scoring ; then
-  if [ -f $data/stm ]; then # use sclite scoring.
-    [ ! -x local/score_sclite.sh ] && echo "Not scoring because local/score_sclite.sh does not exist or not executable." && exit 1;
-    local/score_sclite.sh $scoring_opts --cmd "$cmd" $data $graphdir $dir || exit 1;
-  else
-    [ ! -x local/score.sh ] && echo "Not scoring because local/score.sh does not exist or not executable." && exit 1;
-    local/score.sh $scoring_opts --cmd "$cmd" $data $graphdir $dir || exit 1;
-  fi
-fi
+#if ! $skip_scoring ; then
+#  if [ -f $data/stm ]; then # use sclite scoring.
+#    [ ! -x local/score_sclite.sh ] && echo "Not scoring because local/score_sclite.sh does not exist or not executable." && exit 1;
+#    local/score_sclite.sh $scoring_opts --cmd "$cmd" $data $graphdir $dir || exit 1;
+#  else
+#    [ ! -x local/score.sh ] && echo "Not scoring because local/score.sh does not exist or not executable." && exit 1;
+#    local/score.sh $scoring_opts --cmd "$cmd" $data $graphdir $dir || exit 1;
+#  fi
+#fi
 
 exit 0;

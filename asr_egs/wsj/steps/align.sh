@@ -14,15 +14,15 @@ num_threads=1
 scale_opts="--transition-scale=1.0 --acoustic-scale=0.9 --self-loop-scale=0.1"
 retry_beam=40
 
-acwt=0.9
-min_active=200
-max_active=7000 # max-active
+#acwt=0.9
+#min_active=200
+#max_active=7000 # max-active
 beam=15.0       # beam used
-lattice_beam=8.0
-max_mem=50000000 # approx. limit to memory consumption during minimization in bytes
+#lattice_beam=8.0
+#max_mem=50000000 # approx. limit to memory consumption during minimization in bytes
 
-skip_scoring=true # whether to skip WER scoring
-scoring_opts="--min-acwt 5 --max-acwt 10 --acwt-factor 0.1"
+#skip_scoring=true # whether to skip WER scoring
+#scoring_opts="--min-acwt 5 --max-acwt 10 --acwt-factor 0.1"
 
 # feature configurations; will be read from the training dir if not provided
 norm_vars=
@@ -59,15 +59,17 @@ thread_string=
 
 [ -z "$add_deltas" ] && add_deltas=`cat $srcdir/add_deltas 2>/dev/null`
 [ -z "$norm_vars" ] && norm_vars=`cat $srcdir/norm_vars 2>/dev/null`
-oov=`cat $langdir/oov.int` || exit 1;
+
 mkdir -p $dir/log
 split_data.sh $data $nj || exit 1;
 echo $nj > $dir/num_jobs
 
 # Check if necessary files exist.
-for f in $langdir/T.fst $langdir/L.fst $srcdir/label.counts $data/feats.scp; do
+for f in $langdir/oov.int $langdir/T.fst $langdir/L.fst $srcdir/label.counts $data/feats.scp; do
   [ ! -f $f ] && echo "$0: no such file $f" && exit 1;
 done
+
+oov=`cat $langdir/oov.int`;
 
 ## Set up the features
 echo "$0: feature: norm_vars(${norm_vars}) add_deltas(${add_deltas})"
